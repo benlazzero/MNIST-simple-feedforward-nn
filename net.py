@@ -29,8 +29,12 @@ def run_gradient_descent(model, batch_size=100, learning_rate=0.01, weight_decay
     
     train_loader=torch.utils.data.DataLoader( trainset, batch_size=batch_size, shuffle=True)
     
-    # train
+    # early stop on validation progress
+    patience = 5
+    min_change = .001
+    end_counter = 0
 
+    # train loop
     n = 0
     for epoch in range(num_epochs):
        for xs, ts in iter(train_loader):
@@ -53,6 +57,16 @@ def run_gradient_descent(model, batch_size=100, learning_rate=0.01, weight_decay
                iters_sub.append(n)
                train_acc.append(get_accuracy(model, trainset))
                val_acc.append(get_accuracy(model, valset))
+               if len(val_acc) > 4 and val_acc[-1] - val_acc[-2] <= min_change:
+                   print("counter up, total: ", end_counter)
+                   end_counter += 1
+                   if end_counter >= patience:
+                       break
+               else:
+                   if end_counter != 0:
+                     print("in else")
+                     end_counter = 0
+                   
            n += 1
            
     plt.title("TrainingCurve(batch_size={},lr={})".format(batch_size,learning_rate))
@@ -80,7 +94,7 @@ def run_gradient_descent(model, batch_size=100, learning_rate=0.01, weight_decay
     return model
 
 def get_accuracy(model, data):
-    loader = torch.utils.data.DataLoader(data, batch_size=500)
+    loader = torch.utils.data.DataLoader(data, batch_size=10000)
     
     correct, total = 0, 0
     for xs, ts in loader:
@@ -90,33 +104,45 @@ def get_accuracy(model, data):
         pred = zs.max(1, keepdim=True)[1]
         correct += pred.eq(ts.view_as(pred)).sum().item()
         total += int(ts.shape[0])
+        print(correct/total)
         return correct / total
-    
-#torch.manual_seed(42)
-model = nn.Sequential(
-    nn.Linear(784, 128),  # First hidden layer: 784 inputs, 128 outputs
-    nn.ReLU(),  # Activation function
-    nn.Linear(128, 10)  # Output layer: 128 inputs, 10 outputs
-)
-trainedModel = run_gradient_descent(model, batch_size=25, learning_rate=0.001, num_epochs=1)
 
+def format_image(imgpath, label):
+    myimg = Image.open(imgpath).convert('L')
+    myimg = ImageOps.invert(myimg.resize((28, 28)))
+    myimg_np = np.array(myimg) / 255.0
+    myimg_tens = torch.from_numpy(myimg_np).float().view(-1, 784).unsqueeze(0)
+    output = trainedModel(myimg_tens)
+    output = output.squeeze(0)
+    return (output, label)
+    
+    
+torch.manual_seed(42)
+model = nn.Sequential(
+    nn.Linear(784, 696),  # First hidden layer: 784 inputs, x outputs
+    nn.ReLU(),  # Activation function
+    nn.Linear(696, 10)  
+)
+
+trainedModel = run_gradient_descent(model, batch_size=64, learning_rate=0.001, num_epochs=2)
+
+# save model
+# torch.save(trainedModel.state_dict(), 'model94.pth')
+
+# get image/label from val set
 image, img_label = valset[18]
 img_input = image.view(-1, 784).unsqueeze(0).float()
 output2 = trainedModel(img_input)
 output2 = output2.squeeze(0)
 
-# bring in own image/label
-the_label = "0"
-myimg = Image.open('0.jpg').convert('L')
-myimg = ImageOps.invert(myimg.resize((28, 28)))
-myimg_np = np.array(myimg) / 255.0
-myimg_tens = torch.from_numpy(myimg_np).float().view(-1, 784).unsqueeze(0)
-
-output = trainedModel(myimg_tens)
-output = output.squeeze(0)
+# bring in own images/labels
+output, the_label = format_image("0.jpg", "0")
+output3, the_label3 = format_image("8.jpg", "8")
 
 _, predicted_label = torch.max(output, 1)
 _, predicted_label2 = torch.max(output2, 1)
+_, predicted_label3 = torch.max(output3, 1)
 
-print(f"Predicted label: {predicted_label.item()}, True label: {the_label}")
-print(f"Predicted label: {predicted_label2.item()}, True label: {img_label}")
+print(f"(homemade val) Predicted label: {predicted_label3.item()}, True label: {the_label3}")
+print(f"(homemade val) Predicted label: {predicted_label.item()}, True label: {the_label}")
+print(f"(test set) Predicted label: {predicted_label2.item()}, True label: {img_label}")
